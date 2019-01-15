@@ -1,4 +1,4 @@
-#include "dyros_red_controller/quadraticprogram.h"
+#include "quadraticprogram.h"
 
 CQuadraticProgram::CQuadraticProgram()
 {
@@ -17,7 +17,7 @@ void CQuadraticProgram::Initialize()
 
 void CQuadraticProgram::InitializeProblemSize(const int &num_var, const int &num_cons)
 {
-  _QPprob = SQProblem(num_var,num_cons);
+  _SQPprob = SQProblem(num_var,num_cons);
   _bool_constraint_Ax = false;
   _bool_constraint_x = false;
   _num_var = num_var;
@@ -51,6 +51,11 @@ void CQuadraticProgram::UpdateSubjectToAx(const MatrixXd &A, const VectorXd &lbA
   _lbA = lbA;
   _ubA = ubA;
   _bool_constraint_Ax = true;
+
+  if(_num_cons == 0)
+  {
+    _bool_constraint_Ax = false;
+  }
 }
 
 void CQuadraticProgram::UpdateSubjectToX(const VectorXd &lb, const VectorXd &ub)
@@ -107,6 +112,13 @@ void CQuadraticProgram::PrintSubjectToAx()
     cout <<"                   s.t. lbA <= Ax <= ubA is not inserted.                     "<<endl;
     cout <<"------------------------------------------------------------------------------"<<endl;
   }
+
+  if(_num_cons == 0)
+  {
+    cout <<"------------------------------------------------------------------------------"<<endl;
+    cout <<"                             wrong problem type                               "<<endl;
+    cout <<"------------------------------------------------------------------------------"<<endl;
+  }
 }
 
 void CQuadraticProgram::PrintSubjectTox()
@@ -145,124 +157,135 @@ void CQuadraticProgram::DisableEqualityCondition()
 
 VectorXd CQuadraticProgram::SolveQPoases(const int &num_max_iter)
 {
-  //translate eigen to real_t formulation
-  real_t H_realt[_num_var*_num_var]; // H in min eq 1/2x'Hx + x'g
-  for(int i=0; i<_num_var; i++)
-  {
-    for(int j=0; j<_num_var; j++)
-    {
-      H_realt[_num_var*j+i] = _H(j,i);
-    }
-  }
-
-  real_t g_realt[_num_var]; // g in min eq 1/2x'Hx + x'g
-  for(int i=0; i<_num_var; i++)
-  {
-    g_realt[i] = _g(i);
-  }
-
-  real_t A_realt[_num_cons*_num_var]; // A in s.t. eq lbA<= Ax <=ubA
-  if(_bool_constraint_Ax == true)
-  {
-    for(int i=0; i<_num_var; i++)
-    {
-      for(int j=0; j<_num_cons; j++)
+    //translate eigen to real_t formulation
+      real_t* H_realt = new real_t[_num_var*_num_var]; // H in min eq 1/2x'Hx + x'g
+      for(int i=0; i<_num_var; i++)
       {
-        A_realt[_num_var*j+i] = _A(j,i);
+        for(int j=0; j<_num_var; j++)
+        {
+          H_realt[_num_var*j+i] = _H(j,i);
+        }
       }
-    }
-  }
 
-  real_t lbA_realt[_num_cons]; // lbA in s.t. eq lbA<= Ax <=ubA
-  if(_bool_constraint_Ax == true)
-  {
-    for(int i=0; i<_num_cons; i++)
-    {
-      lbA_realt[i] = _lbA(i);
-    }
-  }
+      real_t* g_realt = new real_t[_num_var]; // g in min eq 1/2x'Hx + x'g
+      for(int i=0; i<_num_var; i++)
+      {
+        g_realt[i] = _g(i);
+      }
 
-  real_t ubA_realt[_num_cons]; // ubA in s.t. eq lbA<= Ax <=ubA
-  if(_bool_constraint_Ax == true)
-  {
-    for(int i=0; i<_num_cons; i++)
-    {
-      ubA_realt[i] = _ubA(i);
-    }
-  }
-  real_t lb_realt[_num_var]; //lb in s.t. eq lb <= x <= ub
-  if(_bool_constraint_x == true)
-  {
-    for(int i=0; i<_num_var; i++)
-    {
-      lb_realt[i] = _lb(i);
-    }
-  }
+      real_t* A_realt = new real_t[_num_cons*_num_var]; // A in s.t. eq lbA<= Ax <=ubA
+      if(_bool_constraint_Ax == true)
+      {
+        for(int i=0; i<_num_var; i++)
+        {
+          for(int j=0; j<_num_cons; j++)
+          {
+            A_realt[_num_var*j+i] = _A(j,i);
+          }
+        }
+      }
 
-  real_t ub_realt[_num_var]; //ub in s.t. eq lb <= x <= ub
-  if(_bool_constraint_x == true)
-  {
-    for(int i=0; i<_num_var; i++)
-    {
-      ub_realt[i] = _ub(i);
-    }
-  }
-  int_t nWSR = num_max_iter;
+      real_t* lbA_realt = new real_t[_num_cons]; // lbA in s.t. eq lbA<= Ax <=ubA
+      if(_bool_constraint_Ax == true)
+      {
+        for(int i=0; i<_num_cons; i++)
+        {
+          lbA_realt[i] = _lbA(i);
+        }
+      }
 
-  _options.printLevel = PL_NONE;
-  //options.printLevel = PL_DEBUG_ITER;
-  _QPprob.setOptions(_options);
+      real_t* ubA_realt =  new real_t[_num_cons]; // ubA in s.t. eq lbA<= Ax <=ubA
+      if(_bool_constraint_Ax == true)
+      {
+        for(int i=0; i<_num_cons; i++)
+        {
+          ubA_realt[i] = _ubA(i);
+        }
+      }
 
-  returnValue m_status;
-  if(_bInitialized == false)//init
-  {
-    if(_bool_constraint_Ax == true && _bool_constraint_x == true)
-    {
-      m_status = _QPprob.init(H_realt,g_realt,A_realt,lb_realt,ub_realt,lbA_realt,ubA_realt,nWSR);
-    }
-    else if(_bool_constraint_Ax == true && _bool_constraint_x == false)
-    {
-      m_status = _QPprob.init(H_realt,g_realt,A_realt,0,0,lbA_realt,ubA_realt,nWSR);
-    }
-    else if(_bool_constraint_Ax == false && _bool_constraint_x == true)
-    {
-      m_status = _QPprob.init(H_realt,g_realt,0,lb_realt,ub_realt,0,0,nWSR);
-    }
-    else
-    {
-      m_status = _QPprob.init(H_realt,g_realt,0,0,0,0,0,nWSR);
-    }
-    _bInitialized = true;
-  }
-  else//hotstart
-  {
-    if(_bool_constraint_Ax == true && _bool_constraint_x == true)
-    {
-      m_status = _QPprob.hotstart(H_realt,g_realt,A_realt,lb_realt,ub_realt,lbA_realt,ubA_realt,nWSR);
-    }
-    else if(_bool_constraint_Ax == true && _bool_constraint_x == false)
-    {
-      m_status = _QPprob.hotstart(H_realt,g_realt,A_realt,0,0,lbA_realt,ubA_realt,nWSR);
-    }
-    else if(_bool_constraint_Ax == false && _bool_constraint_x == true)
-    {
-      m_status = _QPprob.hotstart(H_realt,g_realt,0,lb_realt,ub_realt,0,0,nWSR);
-    }
-    else
-    {
-      m_status = _QPprob.hotstart(H_realt,g_realt,0,0,0,0,0,nWSR);
-    }
-  }
+      real_t* lb_realt = new real_t[_num_var]; //lb in s.t. eq lb <= x <= ub
+      if(_bool_constraint_x == true)
+      {
+        for(int i=0; i<_num_var; i++)
+        {
+          lb_realt[i] = _lb(i);
+        }
+      }
 
-  real_t Xopt_realt[_num_var];
-  _QPprob.getPrimalSolution(Xopt_realt);
+      real_t* ub_realt = new real_t[_num_var]; //ub in s.t. eq lb <= x <= ub
+      if(_bool_constraint_x == true)
+      {
+        for(int i=0; i<_num_var; i++)
+        {
+          ub_realt[i] = _ub(i);
+        }
+      }
+      int_t nWSR = num_max_iter;
 
-  VectorXd Xopt(_num_var);
-  for(int i=0; i<_num_var; i++)
-  {
-    Xopt(i) = Xopt_realt[i];
-  }
+      _options.printLevel = PL_NONE;
+      //options.printLevel = PL_DEBUG_ITER;
+
+      _SQPprob.setOptions(_options);
 
 
-  return Xopt;
+      returnValue m_status;
+      if(_bInitialized == false)//init
+      {
+        if(_bool_constraint_Ax == true && _bool_constraint_x == true)
+        {
+          m_status = _SQPprob.init(H_realt,g_realt,A_realt,lb_realt,ub_realt,lbA_realt,ubA_realt,nWSR);
+        }
+        else if(_bool_constraint_Ax == true && _bool_constraint_x == false)
+        {
+          m_status = _SQPprob.init(H_realt,g_realt,A_realt,0,0,lbA_realt,ubA_realt,nWSR);
+        }
+        else if(_bool_constraint_Ax == false && _bool_constraint_x == true)
+        {
+          m_status = _SQPprob.init(H_realt,g_realt,0,lb_realt,ub_realt,0,0,nWSR);
+        }
+        else
+        {
+          m_status = _SQPprob.init(H_realt,g_realt,0,0,0,0,0,nWSR);
+        }
+        _bInitialized = true;
+      }
+      else//hotstart
+      {
+        if(_bool_constraint_Ax == true && _bool_constraint_x == true)
+        {
+          m_status = _SQPprob.hotstart(H_realt,g_realt,A_realt,lb_realt,ub_realt,lbA_realt,ubA_realt,nWSR);
+        }
+        else if(_bool_constraint_Ax == true && _bool_constraint_x == false)
+        {
+          m_status = _SQPprob.hotstart(H_realt,g_realt,A_realt,0,0,lbA_realt,ubA_realt,nWSR);
+        }
+        else if(_bool_constraint_Ax == false && _bool_constraint_x == true)
+        {
+          m_status = _SQPprob.hotstart(H_realt,g_realt,0,lb_realt,ub_realt,0,0,nWSR);
+        }
+        else
+        {
+          m_status = _SQPprob.hotstart(H_realt,g_realt,0,0,0,0,0,nWSR);
+        }
+      }
+
+      real_t* Xopt_realt = new real_t[_num_var];
+      _SQPprob.getPrimalSolution(Xopt_realt);
+
+      VectorXd Xopt(_num_var);
+      for(int i=0; i<_num_var; i++)
+      {
+        Xopt(i) = Xopt_realt[i];
+      }
+
+      delete [] H_realt;
+      delete [] g_realt;
+      delete [] A_realt;
+      delete [] lbA_realt;
+      delete [] ubA_realt;
+      delete [] lb_realt;
+      delete [] ub_realt;
+      delete [] Xopt_realt;
+
+      return Xopt;
 }
